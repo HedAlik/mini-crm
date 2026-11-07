@@ -14,7 +14,7 @@ API REST para registrar clientes y dar seguimiento a sus solicitudes (estados `p
 ```bash
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # app + pytest (la imagen Docker solo instala requirements.txt)
 
 python scripts/init_db.py          # crea data/crm.db y aplica migraciones (--seed para datos de ejemplo)
 python -m flask --app app:create_app run --port 8000
@@ -129,6 +129,7 @@ app/
 migrations/001_init.sql
 scripts/init_db.py
 tests/test_api.py
+requirements.txt · requirements-dev.txt
 evidencia/         salida de pytest, curl y captura de la UI
 Dockerfile · docker-compose.yml · .github/workflows/ci.yml
 ```
@@ -142,17 +143,20 @@ Dockerfile · docker-compose.yml · .github/workflows/ci.yml
 - **Ruta específica para el estado** (`PATCH /solicitudes/{id}/estado`): el único cambio permitido es el de estado, y la ruta lo deja explícito.
 - **Email normalizado a minúsculas** para que `Ana@x.com` y `ana@x.com` no cuenten como clientes distintos.
 - **`cliente_id: true` se rechaza**: en Python `bool` es subclase de `int` y `True == 1`, lo que habría permitido asignar la solicitud al cliente 1.
+- **Los ids se acotan al rango de SQLite** (máximo 2⁶³−1). Python acepta enteros de cualquier tamaño, pero SQLite lanza `OverflowError` con uno mayor, lo que devolvía un 500. Ahora un id fuera de rango responde 422 (en el cuerpo o en `?cliente_id=`) o 404 (en la URL). El filtro `?cliente_id=` solo acepta dígitos ASCII, porque `"²".isdigit()` es `True` pero `int("²")` falla.
+- **Dependencias separadas:** `requirements.txt` (solo la app, lo que instala Docker) y `requirements-dev.txt` (añade pytest, para desarrollo y CI).
 - **La interfaz usa `textContent`**, no `innerHTML`, para que el texto del usuario no se interprete como HTML (evita XSS). Comprobado con la descripción `<b>Cambio de plan</b>` (ver `evidencia/ui.png`).
 - **Los errores 500 no exponen trazas** al cliente.
 - **Docker** usa un usuario sin privilegios y un volumen para persistir la BD.
 
 ## Pruebas
 
-13 pruebas en [`tests/test_api.py`](tests/test_api.py):
+18 pruebas en [`tests/test_api.py`](tests/test_api.py):
 
 - **Camino exitoso:** flujo completo (crear cliente → crear solicitud → cambiar estado → listar); listado y filtros.
 - **Errores:** cliente inexistente (422), estado inválido al crear y al actualizar (422, y el estado original se conserva), solicitud inexistente (404), email duplicado (409), datos de cliente inválidos (422 ×3), cuerpo no JSON (400), `cliente_id` booleano (422).
 - **Integridad en la BD:** SQLite rechaza FK y estados inválidos aunque no se pase por la API.
+- **Regresiones:** ids fuera del rango de SQLite o con dígitos no ASCII responden 422/404 en lugar de 500 (×4); `init_db.py --seed` ejecutado dos veces no duplica datos.
 
 Salida real: [`evidencia/pytest.md`](evidencia/pytest.md).
 
@@ -183,11 +187,12 @@ Salida real: [`evidencia/pytest.md`](evidencia/pytest.md).
 
 - Se usó Flask en lugar de FastAPI porque FastAPI no estaba instalado en el entorno de la IA y no se podía instalar. Preferí una solución verificada a una sin ejecutar.
 - Corregí `.dockerignore` al probar Docker en mi equipo: no excluía `.venv`, y patrones como `__pycache__` solo aplicaban a la raíz (en `.dockerignore` las rutas son relativas a la raíz del contexto). Los cambié a `.venv`, `**/__pycache__`, `**/.pytest_cache` y `**/*.db`; el contexto de build quedó en ~16 KB.
+- En una revisión del código encontré que ids enormes (`10**20`) o con dígitos no ASCII (`²`) provocaban un error 500. Primero escribí pruebas que lo reproducían (fallaban), luego acoté los ids al rango de SQLite y validé el filtro con dígitos ASCII. En la misma revisión hice idempotente el `--seed` y separé `requirements-dev.txt`.
 - *(Añade aquí lo que cambies tú.)*
 
 **Cómo verifiqué**
 
-- Ejecuté `pytest` (13/13 en verde) → `evidencia/pytest.md`.
+- Ejecuté `pytest` (13/13 en verde; 18/18 tras añadir las pruebas de regresión) → `evidencia/pytest.md`.
 - Levanté el servidor real y probé cada endpoint con `curl`, incluidos los casos de error → `evidencia/curl.md`.
 - Probé la interfaz en un navegador headless (crear cliente, crear solicitud, cambiar estado, inyección de HTML) → `evidencia/ui.png`.
 - Ejecuté `init_db.py` dos veces para confirmar que las migraciones son idempotentes.

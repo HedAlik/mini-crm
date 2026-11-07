@@ -4,7 +4,14 @@ import sqlite3
 from flask import Blueprint, jsonify, request
 
 from .db import get_db
-from .validation import ESTADOS_VALIDOS, validar_cliente, validar_estado, validar_solicitud
+from .validation import (
+    ESTADOS_VALIDOS,
+    MAX_ID,
+    parsear_id,
+    validar_cliente,
+    validar_estado,
+    validar_solicitud,
+)
 
 bp = Blueprint("api", __name__)
 
@@ -104,12 +111,13 @@ def listar_solicitudes():
         filtros.append("s.estado = ?")
         params.append(estado)
 
-    cliente_id = request.args.get("cliente_id")
-    if cliente_id is not None:
-        if not cliente_id.isdigit():
+    texto_cliente_id = request.args.get("cliente_id")
+    if texto_cliente_id is not None:
+        cliente_id = parsear_id(texto_cliente_id)
+        if cliente_id is None:
             return error(422, "Filtro inválido", {"cliente_id": "debe ser un entero positivo"})
         filtros.append("s.cliente_id = ?")
-        params.append(int(cliente_id))
+        params.append(cliente_id)
 
     where = f"WHERE {' AND '.join(filtros)}" if filtros else ""
     rows = get_db().execute(
@@ -131,6 +139,9 @@ def actualizar_estado(solicitud_id: int):
     validar_estado(data.get("estado"), errores)
     if errores:
         return error(422, "Datos inválidos", errores)
+    if solicitud_id > MAX_ID:
+        # Ningún registro puede tener ese id; consultarlo haría fallar a SQLite.
+        return error(404, "Solicitud no encontrada")
 
     db = get_db()
     cur = db.execute(

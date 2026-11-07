@@ -105,6 +105,41 @@ def test_cliente_id_booleano_es_rechazado(client):
     assert resp.status_code == 422
 
 
+FUERA_DE_RANGO = 2**63  # SQLite guarda enteros de 64 bits con signo: máximo 2**63 - 1
+
+
+@pytest.mark.parametrize("metodo, url, body, esperado", [
+    # "²".isdigit() es True, pero int("²") lanza ValueError
+    ("get", "/solicitudes?cliente_id=%C2%B2", None, 422),
+    ("get", f"/solicitudes?cliente_id={FUERA_DE_RANGO}", None, 422),
+    ("post", "/solicitudes", {"cliente_id": FUERA_DE_RANGO, "descripcion": "X"}, 422),
+    ("patch", f"/solicitudes/{FUERA_DE_RANGO}/estado", {"estado": "resuelta"}, 404),
+])
+def test_ids_fuera_de_rango_no_provocan_error_500(client, metodo, url, body, esperado):
+    """Regresión: ids que SQLite no puede representar devolvían 500 en vez de 422/404."""
+    crear_cliente(client)
+    resp = getattr(client, metodo)(url, json=body)
+    assert resp.status_code == esperado
+
+
+def test_seed_es_idempotente(tmp_path, monkeypatch):
+    """Regresión: ejecutar init_db.py --seed dos veces duplicaba la solicitud de ejemplo."""
+    import sqlite3
+    import sys
+    from scripts import init_db
+
+    path = str(tmp_path / "seed.db")
+    monkeypatch.setenv("DATABASE_PATH", path)
+    monkeypatch.setattr(sys, "argv", ["init_db.py", "--seed"])
+    init_db.main()
+    init_db.main()
+
+    conn = sqlite3.connect(path)
+    assert conn.execute("SELECT COUNT(*) FROM clientes").fetchone()[0] == 2
+    assert conn.execute("SELECT COUNT(*) FROM solicitudes").fetchone()[0] == 1
+    conn.close()
+
+
 def test_la_base_de_datos_tambien_impone_las_restricciones(tmp_path):
     """Defensa en profundidad: aunque se salte la API, SQLite rechaza FK y estados inválidos."""
     import sqlite3

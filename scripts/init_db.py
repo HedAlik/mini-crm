@@ -27,9 +27,13 @@ def main() -> None:
         # Datos 100% ficticios (dominio reservado example.com).
         conn.execute("INSERT OR IGNORE INTO clientes (nombre, email) VALUES ('Cliente Demo Uno', 'demo1@example.com')")
         conn.execute("INSERT OR IGNORE INTO clientes (nombre, email) VALUES ('Cliente Demo Dos', 'demo2@example.com')")
+        # NOT EXISTS hace el seed idempotente: ejecutarlo de nuevo no duplica la solicitud.
         conn.execute(
             "INSERT INTO solicitudes (cliente_id, descripcion) "
-            "SELECT id, 'Solicitud de ejemplo' FROM clientes WHERE email = 'demo1@example.com'"
+            "SELECT c.id, 'Solicitud de ejemplo' FROM clientes c "
+            "WHERE c.email = 'demo1@example.com' AND NOT EXISTS ("
+            "  SELECT 1 FROM solicitudes s"
+            "  WHERE s.cliente_id = c.id AND s.descripcion = 'Solicitud de ejemplo')"
         )
         conn.commit()
         conn.close()
