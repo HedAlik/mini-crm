@@ -182,6 +182,7 @@ Salida real: [`evidencia/pytest.md`](evidencia/pytest.md).
 **Qué modifiqué o decidí**
 
 - Se usó Flask en lugar de FastAPI porque FastAPI no estaba instalado en el entorno de la IA y no se podía instalar. Preferí una solución verificada a una sin ejecutar.
+- Corregí `.dockerignore` al probar Docker en mi equipo: no excluía `.venv`, y patrones como `__pycache__` solo aplicaban a la raíz (en `.dockerignore` las rutas son relativas a la raíz del contexto). Los cambié a `.venv`, `**/__pycache__`, `**/.pytest_cache` y `**/*.db`; el contexto de build quedó en ~16 KB.
 - *(Añade aquí lo que cambies tú.)*
 
 **Cómo verifiqué**
@@ -190,11 +191,12 @@ Salida real: [`evidencia/pytest.md`](evidencia/pytest.md).
 - Levanté el servidor real y probé cada endpoint con `curl`, incluidos los casos de error → `evidencia/curl.md`.
 - Probé la interfaz en un navegador headless (crear cliente, crear solicitud, cambiar estado, inyección de HTML) → `evidencia/ui.png`.
 - Ejecuté `init_db.py` dos veces para confirmar que las migraciones son idempotentes.
+- Levanté el proyecto con `docker compose up --build` (Docker Desktop 29.9 sobre WSL 2, Windows 11): el contenedor queda `healthy`, `/health` y la interfaz responden, se puede crear un cliente (el usuario sin privilegios escribe en el volumen) y los datos persisten tras `docker compose down` + `up`.
 - Revisé el código línea por línea para poder explicarlo en la revisión.
 
 ## Limitaciones y siguientes pasos
 
-- **Docker y CI no se ejecutaron** en el entorno donde se generó el código (no había daemon de Docker ni GitHub). Están escritos según la documentación oficial; verificar con `docker compose up --build` y con el primer push a GitHub.
+- **El CI aún no se ha ejecutado**: está escrito según la documentación oficial de GitHub Actions; se verifica con el primer push a GitHub.
 - Se usa el servidor de desarrollo de Flask; en producción iría detrás de `gunicorn`.
 - Sin autenticación ni autorización (fuera del alcance del ejercicio).
 - Sin paginación en los listados.
