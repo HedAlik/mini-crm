@@ -192,11 +192,11 @@ Salida real: [`evidencia/pytest.md`](evidencia/pytest.md).
 - Probé la interfaz en un navegador headless (crear cliente, crear solicitud, cambiar estado, inyección de HTML) → `evidencia/ui.png`.
 - Ejecuté `init_db.py` dos veces para confirmar que las migraciones son idempotentes.
 - Levanté el proyecto con `docker compose up --build` (Docker Desktop 29.9 sobre WSL 2, Windows 11): el contenedor queda `healthy`, `/health` y la interfaz responden, se puede crear un cliente (el usuario sin privilegios escribe en el volumen) y los datos persisten tras `docker compose down` + `up`.
+- Subí el repositorio a GitHub ([HedAlik/mini-crm](https://github.com/HedAlik/mini-crm)): el workflow de CI pasa en verde (pruebas + build de la imagen Docker), ver la pestaña **Actions**.
 - Revisé el código línea por línea para poder explicarlo en la revisión.
 
 ## Limitaciones y siguientes pasos
 
-- **El CI aún no se ha ejecutado**: está escrito según la documentación oficial de GitHub Actions; se verifica con el primer push a GitHub.
 - Se usa el servidor de desarrollo de Flask; en producción iría detrás de `gunicorn`.
 - Sin autenticación ni autorización (fuera del alcance del ejercicio).
 - Sin paginación en los listados.
