@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mini CRM · Solicitudes</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  h1 { font-size: 1.4rem; }
+  section { margin-bottom: 1.5rem; }
+  form { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+  input, select, button { padding: .4rem .6rem; font-size: .95rem; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border-bottom: 1px solid #ddd; padding: .5rem; text-align: left; }
+  .msg { min-height: 1.2rem; font-size: .9rem; }
+  .err { color: #b00020; } .ok { color: #1b5e20; }
+</style>
+</head>
+<body>
+<h1>Mini CRM · Seguimiento de solicitudes</h1>
+
+<section>
+  <h2>Nuevo cliente</h2>
+  <form id="form-cliente">
+    <input name="nombre" placeholder="Nombre" required>
+    <input name="email" type="email" placeholder="email@example.com" required>
+    <button>Crear cliente</button>
+  </form>
+</section>
+
+<section>
+  <h2>Nueva solicitud</h2>
+  <form id="form-solicitud">
+    <select name="cliente_id" id="sel-cliente" required></select>
+    <input name="descripcion" placeholder="Descripción" required size="40">
+    <button>Crear solicitud</button>
+  </form>
+</section>
+
+<p id="msg" class="msg"></p>
+
+<section>
+  <h2>Solicitudes</h2>
+  <label>Filtrar por estado:
+    <select id="filtro">
+      <option value="">Todos</option>
+      <option value="pendiente">pendiente</option>
+      <option value="en_proceso">en_proceso</option>
+      <option value="resuelta">resuelta</option>
+    </select>
+  </label>
+  <table>
+    <thead><tr><th>ID</th><th>Cliente</th><th>Descripción</th><th>Estado</th></tr></thead>
+    <tbody id="tabla"></tbody>
+  </table>
+</section>
+
+<script>
+const ESTADOS = ["pendiente", "en_proceso", "resuelta"];
+const $ = (id) => document.getElementById(id);
+
+function aviso(texto, ok = false) {
+  $("msg").textContent = texto;
+  $("msg").className = "msg " + (ok ? "ok" : "err");
+}
+
+async function api(url, opts = {}) {
+  const resp = await fetch(url, { headers: { "Content-Type": "application/json" }, ...opts });
+  const data = await resp.json();
+  if (!resp.ok) {
+    const det = data.detalles ? " · " + Object.entries(data.detalles).map(([k, v]) => `${k}: ${v}`).join("; ") : "";
+    throw new Error(data.error + det);
+  }
+  return data;
+}
+
+async function cargarClientes() {
+  const clientes = await api("/clientes");
+  const sel = $("sel-cliente");
+  sel.replaceChildren(...clientes.map((c) => new Option(`${c.id} · ${c.nombre}`, c.id)));
+}
+
+async function cargarSolicitudes() {
+  const estado = $("filtro").value;
+  const solicitudes = await api("/solicitudes" + (estado ? `?estado=${estado}` : ""));
+  const filas = solicitudes.map((s) => {
+    const tr = document.createElement("tr");
+    // textContent (no innerHTML) para evitar XSS con datos del usuario
+    for (const v of [s.id, s.cliente_nombre, s.descripcion]) {
+      const td = document.createElement("td"); td.textContent = v; tr.append(td);
+    }
+    const sel = document.createElement("select");
+    ESTADOS.forEach((e) => sel.add(new Option(e, e, false, e === s.estado)));
+    sel.onchange = async () => {
+      try {
+        await api(`/solicitudes/${s.id}/estado`, { method: "PATCH", body: JSON.stringify({ estado: sel.value }) });
+        aviso(`Solicitud ${s.id} → ${sel.value}`, true);
+        cargarSolicitudes();
+      } catch (e) { aviso(e.message); }
+    };
+    const td = document.createElement("td"); td.append(sel); tr.append(td);
+    return tr;
+  });
+  $("tabla").replaceChildren(...filas);
+}
+
+$("form-cliente").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const f = new FormData(ev.target);
+  try {
+    await api("/clientes", { method: "POST", body: JSON.stringify(Object.fromEntries(f)) });
+    ev.target.reset(); aviso("Cliente creado", true); cargarClientes();
+  } catch (e) { aviso(e.message); }
+};
+
+$("form-solicitud").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const f = new FormData(ev.target);
+  try {
+    await api("/solicitudes", { method: "POST", body: JSON.stringify({
+      cliente_id: Number(f.get("cliente_id")), descripcion: f.get("descripcion") }) });
+    ev.target.descripcion.value = ""; aviso("Solicitud creada", true); cargarSolicitudes();
+  } catch (e) { aviso(e.message); }
+};
+
+$("filtro").onchange = cargarSolicitudes;
+cargarClientes().then(cargarSolicitudes).catch((e) => aviso(e.message));
+</script>
+</body>
+</html>
