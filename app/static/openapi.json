@@ -1,0 +1,189 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Mini CRM · Seguimiento de solicitudes",
+    "version": "1.0.0",
+    "description": "API REST para registrar clientes y dar seguimiento a sus solicitudes.\n\n**Criterio de códigos HTTP**\n- `400` el cuerpo no es un objeto JSON.\n- `422` el JSON es válido pero los datos no (campo faltante, estado inválido, cliente inexistente).\n- `404` el recurso de la URL no existe.\n- `409` conflicto con datos existentes (email duplicado)."
+  },
+  "tags": [
+    {"name": "Sistema"},
+    {"name": "Clientes"},
+    {"name": "Solicitudes"}
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Sistema"],
+        "summary": "Estado del servicio",
+        "responses": {
+          "200": {
+            "description": "El servicio y la base de datos responden",
+            "content": {"application/json": {"schema": {"type": "object", "properties": {"status": {"type": "string", "example": "ok"}}}}}
+          }
+        }
+      }
+    },
+    "/clientes": {
+      "post": {
+        "tags": ["Clientes"],
+        "summary": "Crear cliente",
+        "description": "El email se guarda en minúsculas: `Ana@x.com` y `ana@x.com` son el mismo cliente.",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ClienteNuevo"}}}
+        },
+        "responses": {
+          "201": {"description": "Cliente creado", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Cliente"}}}},
+          "400": {"$ref": "#/components/responses/NoJson"},
+          "409": {
+            "description": "Ya existe un cliente con ese email",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}, "example": {"error": "Ya existe un cliente con ese email"}}}
+          },
+          "422": {"$ref": "#/components/responses/DatosInvalidos"}
+        }
+      },
+      "get": {
+        "tags": ["Clientes"],
+        "summary": "Listar clientes",
+        "responses": {
+          "200": {
+            "description": "Todos los clientes, ordenados por id",
+            "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/Cliente"}}}}
+          }
+        }
+      }
+    },
+    "/solicitudes": {
+      "post": {
+        "tags": ["Solicitudes"],
+        "summary": "Crear solicitud",
+        "description": "Si no se envía `estado`, la solicitud se crea como `pendiente`.",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SolicitudNueva"}}}
+        },
+        "responses": {
+          "201": {"description": "Solicitud creada", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Solicitud"}}}},
+          "400": {"$ref": "#/components/responses/NoJson"},
+          "422": {
+            "description": "Datos inválidos (por ejemplo, el cliente no existe)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}, "example": {"error": "Datos inválidos", "detalles": {"cliente_id": "el cliente no existe"}}}}
+          }
+        }
+      },
+      "get": {
+        "tags": ["Solicitudes"],
+        "summary": "Listar solicitudes",
+        "description": "Incluye el nombre del cliente. Los filtros se pueden combinar.",
+        "parameters": [
+          {"name": "estado", "in": "query", "required": false, "schema": {"$ref": "#/components/schemas/Estado"}},
+          {"name": "cliente_id", "in": "query", "required": false, "schema": {"$ref": "#/components/schemas/Id"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Solicitudes que cumplen los filtros, ordenadas por id",
+            "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/SolicitudConCliente"}}}}
+          },
+          "422": {
+            "description": "Filtro inválido",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}, "example": {"error": "Filtro inválido", "detalles": {"estado": "debe ser uno de: pendiente, en_proceso, resuelta"}}}}
+          }
+        }
+      }
+    },
+    "/solicitudes/{solicitud_id}/estado": {
+      "patch": {
+        "tags": ["Solicitudes"],
+        "summary": "Cambiar estado",
+        "description": "Único cambio permitido sobre una solicitud. Actualiza también `actualizado_en`.",
+        "parameters": [
+          {"name": "solicitud_id", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Id"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"type": "object", "required": ["estado"], "properties": {"estado": {"$ref": "#/components/schemas/Estado"}}}, "example": {"estado": "en_proceso"}}}
+        },
+        "responses": {
+          "200": {"description": "Estado actualizado", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Solicitud"}}}},
+          "400": {"$ref": "#/components/responses/NoJson"},
+          "404": {
+            "description": "La solicitud no existe",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}, "example": {"error": "Solicitud no encontrada"}}}
+          },
+          "422": {
+            "description": "Estado inválido",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}, "example": {"error": "Datos inválidos", "detalles": {"estado": "debe ser uno de: pendiente, en_proceso, resuelta"}}}}
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Id": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807, "example": 1},
+      "Estado": {"type": "string", "enum": ["pendiente", "en_proceso", "resuelta"]},
+      "Fecha": {"type": "string", "description": "UTC, formato `YYYY-MM-DD HH:MM:SS`", "example": "2026-11-07 04:31:18"},
+      "ClienteNuevo": {
+        "type": "object",
+        "required": ["nombre", "email"],
+        "properties": {
+          "nombre": {"type": "string", "minLength": 1, "maxLength": 120, "example": "Ana Prueba"},
+          "email": {"type": "string", "format": "email", "example": "ana@example.com"}
+        }
+      },
+      "Cliente": {
+        "type": "object",
+        "properties": {
+          "id": {"$ref": "#/components/schemas/Id"},
+          "nombre": {"type": "string", "example": "Ana Prueba"},
+          "email": {"type": "string", "example": "ana@example.com"},
+          "creado_en": {"$ref": "#/components/schemas/Fecha"}
+        }
+      },
+      "SolicitudNueva": {
+        "type": "object",
+        "required": ["cliente_id", "descripcion"],
+        "properties": {
+          "cliente_id": {"$ref": "#/components/schemas/Id"},
+          "descripcion": {"type": "string", "minLength": 1, "maxLength": 1000, "example": "No llega mi factura"},
+          "estado": {"$ref": "#/components/schemas/Estado"}
+        }
+      },
+      "Solicitud": {
+        "type": "object",
+        "properties": {
+          "id": {"$ref": "#/components/schemas/Id"},
+          "cliente_id": {"$ref": "#/components/schemas/Id"},
+          "descripcion": {"type": "string", "example": "No llega mi factura"},
+          "estado": {"$ref": "#/components/schemas/Estado"},
+          "creado_en": {"$ref": "#/components/schemas/Fecha"},
+          "actualizado_en": {"$ref": "#/components/schemas/Fecha"}
+        }
+      },
+      "SolicitudConCliente": {
+        "allOf": [
+          {"$ref": "#/components/schemas/Solicitud"},
+          {"type": "object", "properties": {"cliente_nombre": {"type": "string", "example": "Ana Prueba"}}}
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {"type": "string"},
+          "detalles": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Motivo por campo"}
+        }
+      }
+    },
+    "responses": {
+      "NoJson": {
+        "description": "El cuerpo no es un objeto JSON",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}, "example": {"error": "El cuerpo debe ser un objeto JSON"}}}
+      },
+      "DatosInvalidos": {
+        "description": "Datos inválidos",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}, "example": {"error": "Datos inválidos", "detalles": {"email": "debe ser un correo válido"}}}}
+      }
+    }
+  }
+}

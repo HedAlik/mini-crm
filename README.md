@@ -22,6 +22,7 @@ python -m flask --app app:create_app run --port 8000
 
 - API: <http://localhost:8000>
 - Interfaz: <http://localhost:8000/>
+- Documentación interactiva (Swagger UI): <http://localhost:8000/docs> · especificación: <http://localhost:8000/openapi.json>
 
 > La app también aplica las migraciones pendientes al arrancar, así que `init_db.py` es opcional.
 
@@ -76,6 +77,8 @@ Todas las respuestas son JSON. Los errores tienen la forma `{"error": "...", "de
 | GET | `/solicitudes` | Listar solicitudes (filtros opcionales `?estado=` y `?cliente_id=`) | 200 | 422 |
 | PATCH | `/solicitudes/{id}/estado` | Cambiar estado | 200 | 400, 404, 422 |
 
+Todos los endpoints se pueden explorar y probar desde **Swagger UI** en `/docs` (botón *Try it out*).
+
 **Criterio de códigos HTTP**
 
 - `400` el cuerpo no es un objeto JSON.
@@ -126,6 +129,8 @@ app/
   routes.py        endpoints
   validation.py    reglas de validación de entrada
   static/index.html  interfaz (HTML + JS sin dependencias)
+  static/docs.html   Swagger UI (cargado desde CDN, versión fija)
+  static/openapi.json  especificación OpenAPI 3.0 de la API
 migrations/001_init.sql
 scripts/init_db.py
 tests/test_api.py
@@ -137,6 +142,7 @@ Dockerfile · docker-compose.yml · .github/workflows/ci.yml
 ## Decisiones técnicas
 
 - **Flask en lugar de FastAPI.** Ambos estaban sugeridos. Elegí Flask porque es el que tenía disponible y probado en mi entorno; con el alcance del ejercicio la validación manual es corta y explícita. Con más tiempo, FastAPI + Pydantic daría validación y documentación OpenAPI automáticas.
+- **OpenAPI escrito a mano + Swagger UI.** Flask no genera la especificación, así que `openapi.json` está escrito a mano y Swagger UI se carga desde un CDN con versión fija: sin dependencias de Python nuevas. Para que no se desincronice, una prueba compara las rutas documentadas con las rutas reales de la app; si se añade un endpoint sin documentar, el CI falla. La especificación se validó con `openapi-spec-validator`.
 - **SQLite con `sqlite3` de la biblioteca estándar, sin ORM.** Para dos tablas, SQL directo es más fácil de leer y de explicar. Todas las consultas están parametrizadas (`?`), así que no hay inyección SQL. El único SQL dinámico es el `WHERE` de los filtros, y solo concatena fragmentos fijos; los valores siempre van como parámetros.
 - **Validación en dos capas.** La API valida y devuelve mensajes claros por campo. Además, la base de datos impone FK y `CHECK` como segunda defensa, por si alguien escribe directo en la BD o hay un bug en la API (hay una prueba específica para esto).
 - **`PRAGMA foreign_keys = ON` en cada conexión.** SQLite **no** aplica las llaves foráneas por defecto; sin esto, la FK estaría declarada pero no se cumpliría.
@@ -151,12 +157,13 @@ Dockerfile · docker-compose.yml · .github/workflows/ci.yml
 
 ## Pruebas
 
-18 pruebas en [`tests/test_api.py`](tests/test_api.py):
+19 pruebas en [`tests/test_api.py`](tests/test_api.py):
 
 - **Camino exitoso:** flujo completo (crear cliente → crear solicitud → cambiar estado → listar); listado y filtros.
 - **Errores:** cliente inexistente (422), estado inválido al crear y al actualizar (422, y el estado original se conserva), solicitud inexistente (404), email duplicado (409), datos de cliente inválidos (422 ×3), cuerpo no JSON (400), `cliente_id` booleano (422).
 - **Integridad en la BD:** SQLite rechaza FK y estados inválidos aunque no se pase por la API.
 - **Regresiones:** ids fuera del rango de SQLite o con dígitos no ASCII responden 422/404 en lugar de 500 (×4); `init_db.py --seed` ejecutado dos veces no duplica datos.
+- **Documentación:** `/docs` responde y `openapi.json` documenta exactamente las rutas y métodos reales de la app.
 
 Salida real: [`evidencia/pytest.md`](evidencia/pytest.md).
 
@@ -171,28 +178,31 @@ Salida real: [`evidencia/pytest.md`](evidencia/pytest.md).
 
 ## Uso de IA
 
-**Herramienta:** Claude (Anthropic), modelo Claude Opus 5.5, en modo agente: generó el código y lo ejecutó en un entorno aislado.
+**Herramienta:** Claude (Anthropic), modelo Claude Opus 5.5, en modo agente. Primero generó el código y lo ejecutó en un entorno aislado; después, con Claude Code en VS Code sobre mi equipo, lo instalé y verifiqué localmente, levanté Docker, publiqué el repositorio con CI, revisé el código y añadí la documentación Swagger.
 
 **Prompts representativos**
 
-1. *«Necesito un plan y que realices específicamente lo que hace el siguiente PDF»* (adjuntando el enunciado de la evaluación).
-2. *(Completa con tus propios prompts de seguimiento, por ejemplo:)* «Explícame por qué la validación de `cliente_id` excluye `bool`».
-3. *(Ej.:)* «Agrega una prueba que reproduzca el fallo X antes de corregirlo».
+1. «Necesito un plan y que realices específicamente lo que hace el siguiente PDF» (adjuntando el enunciado de la evaluación).
+2. «Lee el README y ayúdame a instalar el proyecto en mi equipo (venv, dependencias, pruebas y servidor). Explícame cada comando antes de ejecutarlo.»
+3. «Levanta el proyecto con docker compose up --build y corrige lo que falle.» → se corrigió `.dockerignore`.
+4. «¿Ya está todo? ¿Hacemos revisiones antes de entregar?» → la revisión encontró ids que provocaban error 500; se escribieron pruebas que lo reproducían y luego se corrigió.
+5. Al autorizar GitHub CLI pregunté qué implicaba el acceso a organizaciones; concedí solo los permisos necesarios (`repo`, `workflow`) en mi cuenta personal.
 
 **Qué acepté**
 
-- *(Edita según tu revisión.)* La estructura del proyecto, el esquema SQL con FK y `CHECK`, y el criterio 400/404/409/422.
+- La estructura del proyecto, el esquema SQL con FK y `CHECK`, y el criterio 400/404/409/422.
 
 **Qué modifiqué o decidí**
 
 - Se usó Flask en lugar de FastAPI porque FastAPI no estaba instalado en el entorno de la IA y no se podía instalar. Preferí una solución verificada a una sin ejecutar.
 - Corregí `.dockerignore` al probar Docker en mi equipo: no excluía `.venv`, y patrones como `__pycache__` solo aplicaban a la raíz (en `.dockerignore` las rutas son relativas a la raíz del contexto). Los cambié a `.venv`, `**/__pycache__`, `**/.pytest_cache` y `**/*.db`; el contexto de build quedó en ~16 KB.
 - En una revisión del código encontré que ids enormes (`10**20`) o con dígitos no ASCII (`²`) provocaban un error 500. Primero escribí pruebas que lo reproducían (fallaban), luego acoté los ids al rango de SQLite y validé el filtro con dígitos ASCII. En la misma revisión hice idempotente el `--seed` y separé `requirements-dev.txt`.
-- *(Añade aquí lo que cambies tú.)*
+- Pedí documentación interactiva para probar la API. Elegí Swagger UI sobre Scalar por ser el estándar más reconocido, y un `openapi.json` escrito a mano en lugar de una librería (`flasgger`, `flask-smorest`) para no añadir dependencias ni reescribir las rutas; una prueba evita que la documentación se desincronice del código.
+
 
 **Cómo verifiqué**
 
-- Ejecuté `pytest` (13/13 en verde; 18/18 tras añadir las pruebas de regresión) → `evidencia/pytest.md`.
+- Ejecuté `pytest` (13/13 en verde; 19/19 tras añadir las pruebas de regresión y la de documentación) → `evidencia/pytest.md`.
 - Levanté el servidor real y probé cada endpoint con `curl`, incluidos los casos de error → `evidencia/curl.md`.
 - Probé la interfaz en un navegador headless (crear cliente, crear solicitud, cambiar estado, inyección de HTML) → `evidencia/ui.png`.
 - Ejecuté `init_db.py` dos veces para confirmar que las migraciones son idempotentes.

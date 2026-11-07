@@ -27,6 +27,16 @@ def create_app(config: dict | None = None) -> Flask:
     def index():
         return send_from_directory(app.static_folder, "index.html")
 
+    @app.get("/docs")
+    def docs():
+        # Swagger UI para explorar y probar la API.
+        return send_from_directory(app.static_folder, "docs.html")
+
+    @app.get("/openapi.json")
+    def openapi():
+        # Especificación escrita a mano; una prueba verifica que cubra todas las rutas.
+        return send_from_directory(app.static_folder, "openapi.json")
+
     @app.errorhandler(404)
     def not_found(_e):
         return jsonify({"error": "Recurso no encontrado"}), 404

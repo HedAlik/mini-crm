@@ -140,6 +140,24 @@ def test_seed_es_idempotente(tmp_path, monkeypatch):
     conn.close()
 
 
+def test_docs_y_openapi_cubren_todas_las_rutas(client):
+    """La especificación está escrita a mano: si se añade un endpoint sin documentarlo, falla."""
+    import re
+
+    assert client.get("/docs").status_code == 200
+    spec = client.get("/openapi.json").get_json()
+
+    documentadas = {(ruta, metodo.upper()) for ruta, ops in spec["paths"].items() for metodo in ops}
+    no_api = {"/", "/docs", "/openapi.json", "/static/<path:filename>"}
+    reales = {
+        (re.sub(r"<(?:\w+:)?(\w+)>", r"{\1}", regla.rule), metodo)
+        for regla in client.application.url_map.iter_rules()
+        if regla.rule not in no_api
+        for metodo in regla.methods - {"HEAD", "OPTIONS"}
+    }
+    assert documentadas == reales
+
+
 def test_la_base_de_datos_tambien_impone_las_restricciones(tmp_path):
     """Defensa en profundidad: aunque se salte la API, SQLite rechaza FK y estados inválidos."""
     import sqlite3
